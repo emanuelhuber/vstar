@@ -1,0 +1,1 @@
+test_that("rendering lifecycle is safe", {skip_if_not(has_display(),"No graphical display");x<-imageData(array(runif(10^3),c(10,10,10)));p<-Plotter$new();p$add_volume(x);p$reset_camera();p$render();f<-tempfile(fileext=".png");p$screenshot(f);expect_gt(file.info(f)$size,0);p$close();p$close();expect_error(p$render())})

@@ -1,0 +1,1 @@
+test_that("VTK XML round trips", {f1<-tempfile(fileext=".vti");f2<-tempfile(fileext=".vtp");x<-imageData(array(1:8,c(2,2,2)));s<-pd_sphere();x$write(f1);s$write(f2);expect_equal(read_image_data(f1)$dimensions(),c(2L,2L,2L));expect_equal(read_poly_data(f2)$n_points(),s$n_points())})

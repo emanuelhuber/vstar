@@ -1,0 +1,3 @@
+test_that("image metadata and slice helpers work", {x<-imageData(array(1:60,c(3,4,5)),c(2,3,4),c(10,20,30));expect_equal(x$dimensions(),c(3L,4L,5L));expect_equal(x$bounds(),c(10,14,20,29,30,46));expect_equal(x$scalar_range(),c(1,60));expect_gt(x$slice_z(3)$n_points(),0);expect_error(x$slice_z(0))})
+test_that("geometry and filters work", {s<-pd_sphere();expect_gt(s$n_points(),0);l<-pd_line(c(0,0,0),c(1,0,0));expect_gt(l$tube(.1)$n_cells(),0);expect_false(l$has_scalars())})
+test_that("pointers survive garbage collection", {make<-function()pd_line(c(0,0,0),c(1,0,0))$tube(.1);x<-make();gc();expect_gt(x$n_points(),0);y<-x$deep_copy();rm(x);gc();expect_gt(y$n_cells(),0)})

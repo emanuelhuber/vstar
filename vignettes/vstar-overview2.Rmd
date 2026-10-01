@@ -1,0 +1,574 @@
+---
+title: "vstar 0.1.2: Data, Geometry, and Native VTK Visualization"
+author: "Emanuel Huber"
+date: "`r Sys.Date()`"
+output:
+  rmarkdown::html_vignette:
+    toc: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{vstar 0.1.2: Data, Geometry, and Native VTK Visualization}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Introduction
+
+`vstar` is an R6 and Rcpp interface to selected Visualization Toolkit (VTK)
+data structures, algorithms, native rendering components, and XML file formats.
+Version 0.1.2 is a stabilization release focused on ownership safety, native
+registration, validation, deterministic rendering cleanup, automated tests,
+and package documentation.
+
+The package exposes three principal R6 classes:
+
+- `ImageData` wraps structured 3D scalar grids backed by `vtkImageData`.
+- `PolyData` wraps surfaces, polygons, lines, and point clouds backed by
+  `vtkPolyData`.
+- `Plotter` owns a persistent native VTK renderer, render window, interactor,
+  actors, volumes, mappers, lookup tables, scalar bars, and transfer functions.
+
+```{r load-package}
+library(vstar)
+```
+
+# Architecture and ownership
+
+R objects do not contain complete copies of VTK datasets. Each R6 object holds
+an R external pointer to a C++ wrapper. The wrapper owns its VTK object through
+`vtkSmartPointer`.
+
+The conceptual flow is:
+
+```text
+R6 object
+   |
+   +-- Rcpp external pointer
+           |
+           +-- C++ wrapper object
+                   |
+                   +-- vtkSmartPointer<vtkImageData>
+                   +-- vtkSmartPointer<vtkPolyData>
+                   +-- persistent rendering objects
+```
+
+This design provides the following behavior:
+
+1. Large VTK datasets remain on the C++ side.
+2. VTK reference counting controls native object lifetime.
+3. Each public filter returns a new wrapper and does not mutate its input.
+4. `deep_copy()` creates independent geometry, topology, and data arrays.
+5. `Plotter$close()` releases native graphics resources deterministically.
+6. R6 finalization provides a fallback when a plotter is garbage-collected.
+7. Pointer-backed R6 objects are not cloneable because duplicating only the R6
+   environment would not create an independent native dataset.
+
+# R, Rcpp, and VTK mapping
+
+The main public operations map to VTK as follows:
+
+- `imageData()` creates `vtkImageData` with a VTK-owned `vtkDoubleArray`.
+- `polyData()` creates `vtkPolyData`, `vtkPoints`, and `vtkCellArray` objects.
+- `pd_line()` uses `vtkLineSource`.
+- `pd_spline()` uses `vtkParametricSpline` and
+  `vtkParametricFunctionSource`.
+- `pd_sphere()` uses `vtkSphereSource`.
+- `pd_cylinder()` uses `vtkCylinderSource` and an optional
+  `vtkTransformPolyDataFilter`.
+- `ImageData$contour()` uses `vtkFlyingEdges3D`.
+- `ImageData$slice()` uses `vtkPlane` and `vtkCutter`.
+- `PolyData$tube()` uses `vtkTubeFilter`.
+- `PolyData$delaunay_2d()` uses `vtkDelaunay2D`.
+- `PolyData$transform()` uses `vtkTransform` and
+  `vtkTransformPolyDataFilter`.
+- `Plotter$add_mesh()` uses `vtkPolyDataMapper`, `vtkActor`,
+  `vtkLookupTable`, and optionally `vtkScalarBarActor`.
+- `Plotter$add_volume()` uses `vtkSmartVolumeMapper`, `vtkVolume`,
+  `vtkVolumeProperty`, `vtkColorTransferFunction`, and
+  `vtkPiecewiseFunction`.
+- `Plotter$screenshot()` uses `vtkWindowToImageFilter` and `vtkPNGWriter`.
+- `.vti` I/O uses `vtkXMLImageDataReader` and `vtkXMLImageDataWriter`.
+- `.vtp` I/O uses `vtkXMLPolyDataReader` and `vtkXMLPolyDataWriter`.
+
+# Native linking
+
+For VTK 9.1, the supplied Unix build file links the modules required by the
+current API:
+
+```make
+CXX_STD = CXX17
+PKG_CPPFLAGS = -I/usr/include/vtk-9.1
+PKG_LIBS = \
+ -lvtkCommonCore-9.1 \
+ -lvtkCommonDataModel-9.1 \
+ -lvtkCommonMath-9.1 \
+ -lvtkCommonTransforms-9.1 \
+ -lvtkCommonExecutionModel-9.1 \
+ -lvtkFiltersCore-9.1 \
+ -lvtkFiltersSources-9.1 \
+ -lvtkFiltersGeneral-9.1 \
+ -lvtkFiltersGeometry-9.1 \
+ -lvtkFiltersModeling-9.1 \
+ -lvtkIOCore-9.1 \
+ -lvtkIOXML-9.1 \
+ -lvtkIOImage-9.1 \
+ -lvtkInteractionStyle-9.1 \
+ -lvtkRenderingCore-9.1 \
+ -lvtkRenderingAnnotation-9.1 \
+ -lvtkRenderingOpenGL2-9.1 \
+ -lvtkRenderingVolume-9.1 \
+ -lvtkRenderingVolumeOpenGL2-9.1
+```
+
+`vtkRenderingAnnotation` is required by `vtkScalarBarActor`. The OpenGL and
+volume-rendering implementations are initialized in one C++ translation unit:
+
+```cpp
+VTK_MODULE_INIT(vtkRenderingOpenGL2);
+VTK_MODULE_INIT(vtkInteractionStyle);
+VTK_MODULE_INIT(vtkRenderingVolumeOpenGL2);
+```
+
+The hard-coded VTK path and version are suitable for the current development
+environment but should eventually be replaced by automatic configuration.
+
+# Example `ImageData`
+
+The vignette uses a small synthetic volume so executable examples remain fast.
+
+```{r create-volume}
+n <- 20L
+axis <- seq(-1, 1, length.out = n)
+grid <- expand.grid(x = axis, y = axis, z = axis)
+values <- with(grid, exp(-4 * (x^2 + y^2 + z^2)))
+values <- array(values, dim = c(n, n, n))
+
+volume <- imageData(
+  values,
+  spacing = c(0.1, 0.1, 0.1),
+  origin = c(-1, -1, -1)
+)
+```
+
+R array dimensions map to VTK axes as follows:
+
+```text
+R dimension 1 -> VTK x
+R dimension 2 -> VTK y
+R dimension 3 -> VTK z
+```
+
+The constructor copies the R values into VTK-owned memory. This is safer than
+retaining an unprotected pointer to an R vector.
+
+## `ImageData` metadata
+
+```{r image-metadata}
+volume$dimensions()
+volume$spacing()
+volume$origin()
+volume$bounds()
+volume$scalar_name()
+volume$scalar_range()
+```
+
+`bounds()` returns:
+
+```text
+xmin, xmax, ymin, ymax, zmin, zmax
+```
+
+## Contours
+
+```{r contours}
+surface <- volume$contour(0.5)
+combined <- volume$contour(c(0.2, 0.5, 0.8))
+
+surface$n_points()
+surface$n_cells()
+surface$has_scalars()
+surface$scalar_range()
+```
+
+## Arbitrary plane slices
+
+```{r arbitrary-slice}
+oblique <- volume$slice(
+  origin = c(0, 0, 0),
+  normal = c(1, 1, 0.5)
+)
+
+oblique$n_points()
+oblique$has_scalars()
+```
+
+## Axis-aligned slices
+
+Index methods use one-based R indices:
+
+```{r indexed-slices}
+slice_x <- volume$slice_x(10)
+slice_y <- volume$slice_y(10)
+slice_z <- volume$slice_z(10)
+```
+
+Coordinate methods use physical VTK coordinates:
+
+```{r coordinate-slices}
+slice_x0 <- volume$slice_x_coordinate(0)
+slice_y0 <- volume$slice_y_coordinate(0)
+slice_z0 <- volume$slice_z_coordinate(0)
+```
+
+The coordinate represented by an index is:
+
+```text
+coordinate = origin + (index - 1) * spacing
+```
+
+## Copying and writing
+
+```{r image-copy, eval=FALSE}
+volume_copy <- volume$deep_copy()
+volume$write("volume.vti")
+volume$write("volume.vti", overwrite = TRUE)
+```
+
+# `PolyData`
+
+## Direct construction
+
+Connectivity supplied from R is one-based.
+
+```{r create-polydata}
+vertices <- rbind(
+  c(0, 0, 0),
+  c(1, 0, 0),
+  c(1, 1, 0),
+  c(0, 1, 0)
+)
+
+quad <- polyData(
+  vertices,
+  faces = list(c(1L, 2L, 3L, 4L))
+)
+
+quad$n_points()
+quad$n_cells()
+quad$faces()
+```
+
+## Geometry constructors
+
+```{r geometry-constructors}
+line <- pd_line(
+  c(-1, -1, -1),
+  c(1, 1, 1),
+  resolution = 20L
+)
+
+spline <- pd_spline(
+  rbind(
+    c(-1, -1, -0.5),
+    c(-0.3, 0.4, 0),
+    c(0.4, -0.2, 0.3),
+    c(1, 1, 0.7)
+  ),
+  n_points = 100L
+)
+
+sphere <- pd_sphere(
+  center = c(0, 0, 0),
+  radius = 0.3
+)
+
+cylinder <- pd_cylinder(
+  center = c(0.5, -0.5, 0),
+  radius = 0.1,
+  height = 1,
+  direction = c(0, 0, 1)
+)
+```
+
+## Filters
+
+```{r polydata-filters}
+pipe <- spline$tube(
+  radius = 0.04,
+  sides = 16L,
+  capping = TRUE
+)
+
+set.seed(1)
+planar_points <- cbind(
+  runif(30, -1, 1),
+  runif(30, -1, 1),
+  rep(-0.9, 30)
+)
+triangulated <- polyData(planar_points)$delaunay_2d()
+
+translation <- diag(4)
+translation[1:3, 4] <- c(0.25, 0, 0)
+moved_sphere <- sphere$transform(translation)
+```
+
+## Inspection and conversion
+
+```{r polydata-inspection}
+surface$n_points()
+surface$n_cells()
+surface$bounds()
+surface$center()
+surface$has_scalars()
+surface$scalar_name()
+surface$scalar_range()
+
+head(surface$points())
+head(surface$faces())
+head(t(surface$triangles()))
+
+mesh <- surface$as_mesh3d()
+```
+
+`as_mesh3d()` supports interoperability with `rgl`. Native VTK rendering should
+use the original `PolyData` object directly.
+
+# `Plotter`
+
+Native rendering examples are marked `eval=FALSE`. Package checks can run on
+headless systems without a graphical display or OpenGL context.
+
+## Uniform mesh rendering
+
+```{r uniform-rendering, eval=FALSE}
+plotter <- Plotter$new(
+  background = c(0.05, 0.05, 0.08),
+  size = c(1000L, 750L),
+  title = "vstar PolyData"
+)
+
+plotter$add_mesh(
+  surface,
+  color = c(0.2, 0.6, 0.9),
+  opacity = 0.6,
+  representation = "surface"
+)
+plotter$add_mesh(pipe, color = c(0.9, 0.2, 0.1))
+plotter$add_mesh(
+  triangulated,
+  representation = "wireframe"
+)
+
+plotter$reset_camera()
+plotter$render()
+plotter$screenshot("polydata.png")
+plotter$show()
+plotter$close()
+```
+
+Available representations are `"surface"`, `"wireframe"`, and `"points"`.
+
+## Scalar-colored mesh or slice
+
+```{r scalar-rendering, eval=FALSE}
+plotter <- Plotter$new()
+plotter$add_mesh(
+  slice_z,
+  scalars = TRUE,
+  colormap = "viridis",
+  scalar_range = volume$scalar_range(),
+  show_scalar_bar = TRUE
+)
+plotter$reset_camera()
+plotter$show()
+plotter$close()
+```
+
+Supported colormaps are `viridis`, `plasma`, `magma`, `inferno`, and
+`grayscale`.
+
+## Direct volume rendering
+
+```{r volume-rendering, eval=FALSE}
+r <- volume$scalar_range()
+
+opacity <- matrix(
+  c(
+    r[1],                 0.00,
+    r[1] + 0.3*diff(r),   0.00,
+    r[1] + 0.6*diff(r),   0.20,
+    r[2],                 0.90
+  ),
+  ncol = 2,
+  byrow = TRUE
+)
+
+plotter <- Plotter$new()
+plotter$add_volume(
+  volume,
+  colormap = "magma",
+  opacity = opacity,
+  scalar_range = r,
+  shade = TRUE
+)
+plotter$reset_camera()
+plotter$show()
+plotter$close()
+```
+
+The first opacity column contains scalar positions. The second contains opacity
+values in `[0, 1]`. With `opacity = NULL`, `vstar` creates a linear opacity ramp.
+
+## Rendering lifecycle
+
+```{r rendering-lifecycle, eval=FALSE}
+plotter$reset_camera()
+plotter$render()
+plotter$screenshot("scene.png", scale = 2L)
+plotter$show()
+plotter$clear()
+plotter$close()
+```
+
+- `render()` updates the window without starting VTK's interactive loop.
+- `show()` is interactive and blocks the R console until the native window
+  closes.
+- `clear()` removes scene objects while keeping the plotter open.
+- `close()` finalizes the window and is safe to call more than once.
+- Operations after closure produce an R error instead of dereferencing released
+  graphics objects.
+
+# Native VTK XML I/O
+
+```{r vtk-xml-io}
+vti <- tempfile(fileext = ".vti")
+vtp <- tempfile(fileext = ".vtp")
+
+volume$write(vti)
+surface$write(vtp)
+
+volume_read <- read_image_data(vti)
+surface_read <- read_poly_data(vtp)
+
+volume_read$dimensions()
+surface_read$n_points()
+
+unlink(c(vti, vtp))
+```
+
+Only `.vti` and `.vtp` are supported in version 0.1.2.
+
+# Native registration
+
+Every exported C++ function uses an Rcpp attribute and is registered in the
+package DLL. After `Rcpp::compileAttributes()`, the generated files are:
+
+```text
+R/RcppExports.R
+src/RcppExports.cpp
+```
+
+The namespace contains:
+
+```r
+useDynLib(vstar, .registration = TRUE)
+importFrom(Rcpp, evalCpp)
+```
+
+During development, inspect the registration with:
+
+```{r native-registration, eval=FALSE}
+getLoadedDLLs()[["vstar"]]
+registered <- getDLLRegisteredRoutines("vstar")$.Call
+names(registered)
+
+"_vstar_cpp_create_image_data" %in% names(registered)
+"_vstar_cpp_plotter_add_volume" %in% names(registered)
+```
+
+Never edit generated Rcpp export files as the primary fix. Ensure every
+`// [[Rcpp::export]]` annotation is on its own line and regenerate the files.
+
+# Development workflow
+
+Use this sequence after changing C++ code or exported signatures:
+
+```{r development-workflow, eval=FALSE}
+devtools::clean_dll()
+Rcpp::compileAttributes()
+devtools::document()
+devtools::load_all(recompile = TRUE)
+devtools::test()
+devtools::build_vignettes()
+devtools::check()
+```
+
+After `load_all()`, the development package is already loaded. Do not mix it
+with an older installed copy in the same session.
+
+For a final installed-package test:
+
+```{r installed-package-test, eval=FALSE}
+archive <- devtools::build(vignettes = TRUE)
+install.packages(archive, repos = NULL, type = "source")
+```
+
+On Linux, check unresolved symbols with:
+
+```{r linker-diagnostics, eval=FALSE}
+dll <- getLoadedDLLs()[["vstar"]][["path"]]
+output <- system2("ldd", c("-r", shQuote(dll)), stdout=TRUE, stderr=TRUE)
+grep("undefined symbol|not found", output, value=TRUE)
+```
+
+The expected result is `character(0)`.
+
+# Validation and safety behavior
+
+Version 0.1.2 validates:
+
+- array dimensions, spacing, and origin;
+- finite coordinates and scalar values;
+- one-based polygon and line connectivity;
+- positive radii, heights, and resolutions;
+- nonzero directions and plane normals;
+- finite 4 by 4 transforms;
+- colors and opacity values in `[0, 1]`;
+- increasing scalar ranges;
+- unique opacity-transfer scalar positions;
+- expected `.vti`, `.vtp`, and `.png` extensions;
+- pointer type, pointer null state, and plotter closed state; and
+- screenshot creation.
+
+The test suite includes constructor, filter, I/O, garbage-collection,
+deep-copy, validation, plotter lifecycle, and screenshot tests. Rendering tests
+are skipped automatically when no graphical display is available.
+
+# Current limitations
+
+Version 0.1.2 does not yet provide:
+
+- automatic VTK version and library discovery;
+- `UnstructuredGrid` support;
+- general clipping and threshold filters;
+- named point-data and cell-data array management;
+- probing and vertical-curtain extraction;
+- ray tracing and surface intersection;
+- named actor management;
+- arbitrary user-defined color-map control points;
+- guaranteed headless rendering; or
+- fully tested Windows build automation.
+
+These are appropriate targets for later releases after the 0.1.x API and build
+system are stable.

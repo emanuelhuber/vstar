@@ -1,0 +1,22 @@
+CXX_STD = CXX17
+PKG_CPPFLAGS = -I/usr/include/vtk-9.1
+PKG_LIBS = \
+ -lvtkCommonCore-9.1 \
+ -lvtkCommonDataModel-9.1 \
+ -lvtkCommonMath-9.1 \
+ -lvtkCommonTransforms-9.1 \
+ -lvtkCommonExecutionModel-9.1 \
+ -lvtkFiltersCore-9.1 \
+ -lvtkFiltersSources-9.1 \
+ -lvtkFiltersGeneral-9.1 \
+ -lvtkFiltersGeometry-9.1 \
+ -lvtkFiltersModeling-9.1 \
+ -lvtkIOCore-9.1 \
+ -lvtkIOXML-9.1 \
+ -lvtkIOImage-9.1 \
+ -lvtkInteractionStyle-9.1 \
+ -lvtkRenderingCore-9.1 \
+ -lvtkRenderingAnnotation-9.1 \
+ -lvtkRenderingOpenGL2-9.1 \
+ -lvtkRenderingVolume-9.1 \
+ -lvtkRenderingVolumeOpenGL2-9.1

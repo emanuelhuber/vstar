@@ -1,0 +1,32 @@
+---
+title: "Introduction to vstar"
+author: "Emanuel Huber"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to vstar}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse=TRUE,comment="#>",warning=FALSE,message=FALSE)
+```
+
+`vstar` provides pointer-backed `ImageData`, `PolyData`, and `Plotter` classes.
+
+```{r}
+library(vstar)
+n<-20L;a<-seq(-1,1,length.out=n);g<-expand.grid(x=a,y=a,z=a)
+v<-array(with(g,exp(-4*(x^2+y^2+z^2))),c(n,n,n))
+volume<-imageData(v,spacing=c(.1,.1,.1),origin=c(-1,-1,-1))
+volume$dimensions();volume$scalar_range()
+surface<-volume$contour(.5);slice<-volume$slice_z(10)
+surface$n_points();slice$has_scalars()
+```
+
+Native rendering is not executed during package checks:
+
+```{r eval=FALSE}
+p<-Plotter$new();p$add_mesh(slice,scalars=TRUE,show_scalar_bar=TRUE)
+p$add_volume(volume,colormap="magma");p$reset_camera();p$show();p$close()
+```

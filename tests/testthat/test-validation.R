@@ -1,0 +1,2 @@
+test_that("validation rejects invalid input", {expect_error(imageData(1:4));expect_error(pd_sphere(radius=-1));expect_error(polyData(matrix(1:4,2)));x<-imageData(array(1:8,c(2,2,2)));expect_error(x$slice_x(3));p<-Plotter$new();p$close();p$close();expect_error(p$render())})
+test_that("transfer functions validate", {x<-imageData(array(runif(64),c(4,4,4)));p<-Plotter$new();expect_error(p$add_volume(x,opacity=c(0,0,1)));expect_error(p$add_volume(x,scalar_range=c(1,0)));p$close()})

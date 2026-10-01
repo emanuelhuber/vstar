@@ -1,0 +1,27 @@
+Package: vstar
+Type: Package
+Title: VTK Spatial 3D Architecture for R
+Version: 0.1.2
+Authors@R: person("Emanuel", "Huber", role = c("aut", "cre"), email = "emanuel.huber@example.org")
+Description: Ownership-safe R6 interfaces to selected Visualization Toolkit
+    ('VTK') image, polygonal-data, filtering, rendering, screenshot, and XML
+    input/output capabilities through 'Rcpp'.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports:
+    R6,
+    Rcpp
+LinkingTo:
+    Rcpp,
+    rvtk
+Suggests:
+    knitr,
+    rmarkdown,
+    rgl,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+SystemRequirements: C++17, VTK 9.1
+Config/testthat/edition: 3
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.1.0
